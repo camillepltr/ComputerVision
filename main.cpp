@@ -290,7 +290,7 @@ int demo() {
 
 int main(int argc, const char** argv)
 {
-	//return demo();
-	return BabyFood();
+	return demo();
+	//return BabyFood();
 }
 
