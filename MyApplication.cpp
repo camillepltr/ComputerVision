@@ -1,3 +1,9 @@
+/*
+ * Assignment 2 : Car speed
+ * Camille Peltier - peltierc@tcd.ie*
+ * Computer Vision - TCD - 2021
+ */
+
 #include "Utilities.h"
 #include <iostream>
 #include <fstream>
@@ -13,6 +19,8 @@ using namespace cv;
 #define PLATE_HEIGHT_IN_MM 100
 #define FRAMES_PER_SECOND 29.97
 #define REQUIRED_DICE 0.8
+#define RESOLUTION_WIDTH 960
+#define RESOLUTION_HEIGHT 540
 const int LICENCE_PLATE_LOCATIONS[][5] = { {1, 67, 88, 26, 6}, {2, 67, 88, 26, 6}, {3, 68, 88, 26, 6},
 	{4, 69, 88, 26, 6}, {5, 70, 89, 26, 6}, {6, 70, 89, 27, 6}, {7, 71, 89, 27, 6}, {8, 73, 89, 27, 6},
 	{9, 73, 90, 27, 6}, {10, 74, 90, 27, 6}, {11, 75, 90, 27, 6}, {12, 76, 90, 27, 6}, {13, 77, 91, 27, 6},
@@ -53,10 +61,45 @@ const int NUMBER_OF_PLATES = sizeof(LICENCE_PLATE_LOCATIONS) / (sizeof(LICENCE_P
 const int FRAMES_FOR_DISTANCES[] = { 54,   70,   86,  101,  115,  129,  143,  158,  172 };
 const int DISTANCES_TRAVELLED_IN_MM[] = { 2380, 2380, 2400, 2380, 2395, 2380, 2385, 2380 };
 const double SPEEDS_IN_KMPH[] = { 16.0, 16.0, 17.3, 18.3, 18.5, 18.3, 17.2, 18.3 };
+const int NUMBER_OF_FRAMES_FOR_DISTANCES = sizeof(FRAMES_FOR_DISTANCES) / (sizeof(FRAMES_FOR_DISTANCES[0]));
 
+// Some manually set settings
 const int MAX_DISTANCE_IN_PIXELS_BETWEEN_FRAMES = 150;
-RotatedRect located_plates[NUMBER_OF_PLATES];
+const bool DISPLAY_STEPS_RESULT = false; // True to make screenshots for the report
 
+// Template features
+double plate_aspect_ratio = (double)PLATE_HEIGHT_IN_MM / (double)PLATE_WIDTH_IN_MM;
+double plate_rectangularity = 1.0;
+double plate_angle = 90.0;
+
+//For CCA
+vector<vector<Point>> contours;
+vector<Vec4i> hierarchy;
+
+// To store results
+RotatedRect located_plates[NUMBER_OF_PLATES];
+float computed_distances[NUMBER_OF_FRAMES_FOR_DISTANCES - 1];
+float computed_speeds[NUMBER_OF_FRAMES_FOR_DISTANCES - 1];
+int last_located_plate_index = 0;
+
+
+// To display intermediate treatment results, for screenshots, will dispolay the current frame if it has the frame_to_display frame number
+void displayFrame(Mat image, const char* description, int current_frame) {
+	if (DISPLAY_STEPS_RESULT) {
+		int frame_to_display = 155; // Arbitrary
+		if (current_frame == frame_to_display) {
+			char frame_no[20];
+			sprintf(frame_no, "%d", current_frame);
+			Point frame_no_location(5, 15);
+			Scalar frame_no_colour(0xFF, 0xFF, 0xFF);
+
+			putText(image, frame_no, frame_no_location, FONT_HERSHEY_SIMPLEX, 0.4, frame_no_colour);
+			imshow(description, image);
+		}
+	}
+}
+
+/******************* Methods for the evaluation of the plate location *******************/
 double computeDiceCoefficient(int index) {
 	Rect located_plate = located_plates[index].boundingRect();
 
@@ -83,7 +126,7 @@ void evaluatePlateLocation() {
 		}
 		else {
 			double dice = computeDiceCoefficient(i);
-			if (dice > 0.8) {
+			if (dice > REQUIRED_DICE) {
 				true_positives++;
 			}
 			else {
@@ -94,7 +137,7 @@ void evaluatePlateLocation() {
 
 	double precision = ((double)true_positives) / ((double)(true_positives + false_positives));
 	double recall = ((double)true_positives) / ((double)(true_positives + false_negatives));
-	cout << endl << "*************************** Results for location of the plate ****************************" << endl;
+	cout << endl << "*************************** Evaulation for the location of the plate ****************************" << endl;
 	cout << "Counts of TP : " << true_positives << endl;
 	cout << "Counts of FP : " << false_positives << endl;
 	cout << "Counts of FN : " << false_negatives << endl;
@@ -104,68 +147,113 @@ void evaluatePlateLocation() {
 	cout << "**************************************************************************************************" << endl;
 }
 
-void computeSpeeds() {
-	int n = sizeof(FRAMES_FOR_DISTANCES) / (sizeof(FRAMES_FOR_DISTANCES[0]));
-	for (int i = 1; i < n; i++) {
-		int previous_frame_number = FRAMES_FOR_DISTANCES[i-1];
-		int frame_number = FRAMES_FOR_DISTANCES[i];
-		if (located_plates[frame_number - 1].center == Point2f(0, 0)) { // bricolage à gérer : utilise le resultat du frame d'avant
-			located_plates[frame_number - 1] = located_plates[frame_number - 2];
-		}
-		double delta_t = (double)(frame_number - previous_frame_number) / FRAMES_PER_SECOND;
-		cout << "delta t : " << delta_t << endl;
+/******************* Methods for the computation and evaluation of distances/speeds *******************/
+RotatedRect estimateMissingPlateLocation(int index) {
+	// Find the last located plate
+	int prev = index - 1;
+	RotatedRect previous_rect;
+	while (prev > 0 && located_plates[prev].center == Point2f(0, 0)) {
+		prev--;
+	}
+	previous_rect = located_plates[prev];
 
-		float ratioH = (float)PLATE_HEIGHT_IN_MM / located_plates[frame_number - 1].size.height;
-		float ratioW = (float)PLATE_WIDTH_IN_MM / located_plates[frame_number - 1].size.width;
-		cout << " ratio h" << ratioH << "   ratio w " << ratioW << endl;
-		/*
-		cout << frame_number << "  " << located_plates[frame_number - 1].center << endl;
-		float z_mm2 = FOCAL_LENGTH_ESTIMATE * (float)PLATE_HEIGHT_IN_MM / located_plates[frame_number - 1].size.height;
-		float x_mm2 = z_mm2 * (float)located_plates[frame_number - 1].center.x / (float)FOCAL_LENGTH_ESTIMATE;
-		float y_mm2 = z_mm2 * (float)located_plates[frame_number - 1].center.y / (float)FOCAL_LENGTH_ESTIMATE;
-		float z_mm1 = FOCAL_LENGTH_ESTIMATE * (float)PLATE_HEIGHT_IN_MM / located_plates[previous_frame_number - 1].size.height;
-		float x_mm1 = z_mm1 * (float)located_plates[previous_frame_number - 1].center.x / (float)FOCAL_LENGTH_ESTIMATE;
-		float y_mm1 = z_mm1 * (float)located_plates[previous_frame_number - 1].center.y / (float)FOCAL_LENGTH_ESTIMATE;
-		//float distance = sqrt(pow(x_mm2 - x_mm1, 2) + pow(y_mm2 - y_mm1, 2) + pow(z_mm2 - z_mm1, 2));
-		float dCamera1 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(located_plates[previous_frame_number - 1].center.y, 2));
-		float dCamera2 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(located_plates[frame_number - 1].center.y, 2));
-		float d1 = dCamera1 * (float)PLATE_WIDTH_IN_MM / located_plates[previous_frame_number - 1].size.width;
-		float d2 = dCamera2 * (float)PLATE_WIDTH_IN_MM / located_plates[frame_number - 1].size.width;
-		float distance = sqrt(pow(d1,2) + pow(d2,2) + 2*d1*d2*(pow(FOCAL_LENGTH_ESTIMATE,2) + located_plates[previous_frame_number - 1].center.y* located_plates[frame_number - 1].center.y));
-		cout << "delta xmm " << x_mm2 - x_mm1 << "  delta ymm  " << y_mm2 - y_mm1 << "  delta zmm  " << z_mm2 - z_mm1 << endl;
-		cout << "distance : " << distance << endl;
-		*/
+	// Find the next located plate
+	int next = index + 1;
+	RotatedRect next_rect;
+	while (prev < NUMBER_OF_PLATES && located_plates[next].center == Point2f(0, 0)) {
+		next++;
+	}
+	next_rect = located_plates[next];
+
+	if (prev != 0 && next != NUMBER_OF_PLATES) {
+		RotatedRect res;
+		int delta = next - prev;
+		res.center.x = previous_rect.center.x + (next_rect.center.x - previous_rect.center.x) / delta;
+		res.center.y = previous_rect.center.y + (next_rect.center.y - previous_rect.center.y) / delta;
+		res.size.width = previous_rect.size.width + (next_rect.size.width - previous_rect.size.width) / delta;
+		res.size.height = previous_rect.size.height + (next_rect.size.height - previous_rect.size.height) / delta;
+		return res;
+	}
+	else if (prev == 0 && next != NUMBER_OF_PLATES) {
+		return next_rect;
+	}
+	else if (prev != 0 && next == NUMBER_OF_PLATES) {
+		return next_rect;
+	} 
+	else {
+		return RotatedRect();
 	}
 }
 
+void computeDistancesAndSpeeds() {
+	cout << endl << "*************************** Distances and speeds between frames ****************************" << endl;
+	for (int i = 1; i < NUMBER_OF_FRAMES_FOR_DISTANCES; i++) {
+		int previous_frame_index = FRAMES_FOR_DISTANCES[i-1] - 1; //In the located_plates array, frame number i is at index i-1
+		int frame_index = FRAMES_FOR_DISTANCES[i] - 1;
+		
+		if (located_plates[frame_index].center == Point2f(0, 0)) {
+			cout << endl << "Missing plate location for frame " << frame_index + 1 << ", location estimated." << endl;
+			located_plates[frame_index] = estimateMissingPlateLocation(frame_index);
+		}
+		
+		// Distance 
+		float ci = RESOLUTION_WIDTH / 2.0;
+		float dCamera1 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(located_plates[previous_frame_index].center.x - ci, 2));
+		float dCamera2 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(located_plates[frame_index].center.x - ci, 2));
+		float d1 = dCamera1 * (float)PLATE_WIDTH_IN_MM / located_plates[previous_frame_index].size.height;
+		float d2 = dCamera2 * (float)PLATE_WIDTH_IN_MM / located_plates[frame_index].size.height;
+		float cos_theta = (pow(FOCAL_LENGTH_ESTIMATE, 2) + (located_plates[previous_frame_index].center.x - ci) * (ci - located_plates[frame_index].center.x - ci)) / (dCamera1 * dCamera2);
+		float distance = sqrt(pow(d1,2) + pow(d2,2) - 2*d1*d2*cos_theta);
+		
+		cout << endl << "Between frames  " << previous_frame_index + 1 << " and " << frame_index + 1 << endl;
+		cout << "  Distance : " << distance << " mm" << endl;
+		computed_distances[i-1] = distance;
+
+		// Time
+		double delta_t = (double)(frame_index - previous_frame_index) / FRAMES_PER_SECOND;
+		cout << "  Delta t : " << delta_t << " seconds " << endl;
+		
+		// Speed in kmph
+		delta_t /= 3600.0;
+		distance /= 1000000.0;
+
+		float speed = distance / delta_t;
+		cout << "  -> Speed  : " << speed << " Km/H" << endl;
+		computed_speeds[i-1] = speed;
+	}
+}
+
+void evaluateDistancesAndSpeeds() {
+	float sse_distances = 0.0f;
+	for (int i = 0; i < NUMBER_OF_FRAMES_FOR_DISTANCES - 1; i++) {
+		sse_distances += pow(computed_distances[i] - DISTANCES_TRAVELLED_IN_MM[i], 2);
+	}
+	float sse_speeds = 0.0f;
+	for (int i = 0; i < NUMBER_OF_FRAMES_FOR_DISTANCES - 1; i++) {
+		sse_speeds += pow(computed_speeds[i] - SPEEDS_IN_KMPH[i], 2);
+	}
+	cout << endl << "********************* Evaulation of the computed distances and speeds between 9 frames *******************" << endl;
+	cout << "Sum of squared errors for travelled distances : " << sse_distances << endl;
+	cout << "Sum of squared errors for speeds : " << sse_speeds << endl;
+	cout << "**************************************************************************************************" << endl;
+
+}
+
+/******************* Methods for the location of the plate *******************/
 void drawLocatedPlate(int &frame_number, Mat &current_frame, RotatedRect &min_bounding_rectangle, int &closest_contour_index, Mat &contours_image, vector<vector<Point>> &contours, vector<Vec4i> &hierarchy) {
 
 	// Color region on current frame and contour images
-	Scalar colour(rand() & 0xFF, rand() & 0xFF, rand() & 0xFF);
+	Scalar colour(0x80, 0x80, 0xFF);
 	drawContours(contours_image, contours, closest_contour_index, colour, cv::FILLED, 8, hierarchy);
 	drawContours(current_frame, contours, closest_contour_index, colour, cv::FILLED, 8, hierarchy);
+
 	// Draw the minimum bounding rectangle
 	Point2f bounding_rect_points[4];
 	min_bounding_rectangle.points(bounding_rect_points);
-	/*line(contours_image, bounding_rect_points[0], bounding_rect_points[1], Scalar(0, 0, 127));
-	line(contours_image, bounding_rect_points[1], bounding_rect_points[2], Scalar(0, 0, 127));
-	line(contours_image, bounding_rect_points[2], bounding_rect_points[3], Scalar(0, 0, 127));
-	line(contours_image, bounding_rect_points[3], bounding_rect_points[0], Scalar(0, 0, 127)); */
-
 	line(current_frame, bounding_rect_points[0], bounding_rect_points[1], Scalar(0, 0, 127));
 	line(current_frame, bounding_rect_points[1], bounding_rect_points[2], Scalar(0, 0, 127));
 	line(current_frame, bounding_rect_points[2], bounding_rect_points[3], Scalar(0, 0, 127));
 	line(current_frame, bounding_rect_points[3], bounding_rect_points[0], Scalar(0, 0, 127));
-
-	/*
-	RotatedRect truth = RotatedRect(Point2f(LICENCE_PLATE_LOCATIONS[frame_number - 1][1] + LICENCE_PLATE_LOCATIONS[frame_number - 1][3]/2, LICENCE_PLATE_LOCATIONS[frame_number - 1][2] + LICENCE_PLATE_LOCATIONS[frame_number - 1][4]/2), Size2f(LICENCE_PLATE_LOCATIONS[frame_number - 1][3], LICENCE_PLATE_LOCATIONS[frame_number - 1][4]), 0.0);
-	Point2f truth_bounding_rect_points[4];
-	truth.points(truth_bounding_rect_points);
-	line(current_frame, truth_bounding_rect_points[0], truth_bounding_rect_points[1], Scalar(0, 0, 127));
-	line(current_frame, truth_bounding_rect_points[1], truth_bounding_rect_points[2], Scalar(0, 0, 127));
-	line(current_frame, truth_bounding_rect_points[2], truth_bounding_rect_points[3], Scalar(0, 0, 127));
-	line(current_frame, truth_bounding_rect_points[3], truth_bounding_rect_points[0], Scalar(0, 0, 127));
-	*/
 
 	// Display features
 	char output[500];
@@ -173,16 +261,120 @@ void drawLocatedPlate(int &frame_number, Mat &current_frame, RotatedRect &min_bo
 	double aspect_ratio = min_bounding_rectangle.size.aspectRatio();
 	double rectangularity = area / ((double)min_bounding_rectangle.size.width * (double)min_bounding_rectangle.size.height);
 	double angle = min_bounding_rectangle.angle;
-	sprintf(output, "Aspect ratio=%.5f; Rectangularity=%.5f; angle=%.5f ", aspect_ratio, rectangularity, angle);
+	/*sprintf(output, "Aspect ratio=%.5f; Rectangularity=%.5f; angle=%.5f ", aspect_ratio, rectangularity, angle);
 	Point location(contours[closest_contour_index][0].x + 20, contours[closest_contour_index][0].y + 5);
-	putText(contours_image, output, location, FONT_HERSHEY_SIMPLEX, 0.4, colour);
 	putText(current_frame, output, location, FONT_HERSHEY_SIMPLEX, 0.4, colour);
 
-	imshow("After spr", contours_image);
-
+	putText(contours_image, output, location, FONT_HERSHEY_SIMPLEX, 0.4, colour);*/
+	displayFrame(contours_image, "Located plate", frame_number);
 
 }
 
+void findBestMatch(int &frame_number, Mat &current_frame, Mat &contours_image, vector<double> &matching_scores, vector<RotatedRect> &min_bounding_rectangles) {
+	// Find contour with best matching score with the template plate + Can't have moved very far from previous frame
+	int best_contour_index = min_element(matching_scores.begin(), matching_scores.end()) - matching_scores.begin();
+
+	// If it's the first frame or the plate hasn't moved to far : Accept it
+	if (frame_number == 1 ||
+		(DistanceBetweenPoints((Point2i)located_plates[last_located_plate_index].center, (Point2i)min_bounding_rectangles[best_contour_index].center) < MAX_DISTANCE_IN_PIXELS_BETWEEN_FRAMES)) {
+		located_plates[frame_number - 1] = min_bounding_rectangles[best_contour_index];
+		last_located_plate_index = frame_number - 1;
+		drawLocatedPlate(frame_number, current_frame, min_bounding_rectangles[best_contour_index], best_contour_index, contours_image, contours, hierarchy);
+	}
+	else {
+		// Find second best
+		matching_scores[best_contour_index] = DBL_MAX;
+		best_contour_index = min_element(matching_scores.begin(), matching_scores.end()) - matching_scores.begin();
+		if (frame_number == 1 ||
+			(DistanceBetweenPoints((Point2i)located_plates[last_located_plate_index].center, (Point2i)min_bounding_rectangles[best_contour_index].center) < MAX_DISTANCE_IN_PIXELS_BETWEEN_FRAMES)) {
+			located_plates[frame_number - 1] = min_bounding_rectangles[best_contour_index];
+			last_located_plate_index = frame_number - 1;
+			drawLocatedPlate(frame_number, current_frame, min_bounding_rectangles[best_contour_index], best_contour_index, contours_image, contours, hierarchy);
+		}
+
+	}
+}
+
+void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_index, Mat & static_background_image) {
+	if (frame_number <= NUMBER_OF_PLATES) { //Only work on the frames where we have ground truth to exploit results
+
+		//Static background
+		Mat difference_image, thresholded_difference_im;
+		absdiff(current_frame, static_background_image, difference_image);
+		cvtColor(difference_image, thresholded_difference_im, COLOR_BGR2GRAY);
+		threshold(thresholded_difference_im, thresholded_difference_im, 30, 255, THRESH_BINARY);
+		displayFrame(thresholded_difference_im, "Binary moving object pixels", frame_number);
+
+		//Add closing and opening treatment on binary
+		Mat structuring_element_3x3(3, 3, CV_8U, Scalar(1));
+		Mat structuring_element_5x5(5, 5, CV_8U, Scalar(1));
+		Mat opened_image, dilated_image, moving_object_pixels;
+		morphologyEx(thresholded_difference_im, opened_image, MORPH_OPEN, structuring_element_3x3);
+		dilate(opened_image, dilated_image, structuring_element_5x5);
+		displayFrame(dilated_image, "Binary moving object pixels after geometry", frame_number);
+
+		current_frame.copyTo(moving_object_pixels, dilated_image);
+		displayFrame(moving_object_pixels, "Original moving object pixels after geometry", frame_number);
+
+		//OTSU thresholding on the original grayscale image for the moving object pixels only, to select bright areas of the moving object
+		Mat gray_moving_pixels, otsu_image;
+		cvtColor(moving_object_pixels, gray_moving_pixels, COLOR_BGR2GRAY);
+		threshold(gray_moving_pixels, otsu_image, 50, 255, THRESH_BINARY | THRESH_OTSU);
+		displayFrame(otsu_image, "OTSU result", frame_number);
+
+		//CCA to obtain regions
+		findContours(otsu_image, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
+
+		Mat contours_image = Mat::zeros(otsu_image.size(), CV_8UC3);
+		Mat contours_on_original;
+		current_frame.copyTo(contours_on_original);
+		for (int contour_number = 0; (contour_number < (int)contours.size()); contour_number++)
+		{
+			Scalar colour(rand() & 0xFF, rand() & 0xFF, rand() & 0xFF);
+			drawContours(contours_image, contours, contour_number, colour, cv::FILLED, 8, hierarchy);
+			drawContours(contours_on_original, contours, contour_number, colour, cv::FILLED, 8, hierarchy);
+		}
+		displayFrame(contours_image, "CCA result", frame_number);
+		displayFrame(contours_on_original, "CCA result on original image", frame_number);
+
+
+		//SPR
+		vector<double> matching_scores(contours.size());
+		vector<RotatedRect> min_bounding_rectangles(contours.size());
+		for (int contour_number = 0; (contour_number < (int)contours.size()); contour_number++)
+		{
+			if (contours[contour_number].size() > 60)
+			{
+				min_bounding_rectangles[contour_number] = minAreaRect(contours[contour_number]);
+				double area = contourArea(contours[contour_number]) + contours[contour_number].size() / 2 + 1;
+				double aspect_ratio = min_bounding_rectangles[contour_number].size.aspectRatio();
+				double rectangularity = area / ((double)min_bounding_rectangles[contour_number].size.width * (double)min_bounding_rectangles[contour_number].size.height);
+				double angle = min_bounding_rectangles[contour_number].angle;
+				// Matching score : Distance to the plate based on aspect ratio rectangularity and angle features
+				matching_scores[contour_number] = sqrt(pow(plate_aspect_ratio - aspect_ratio, 2) + pow(plate_rectangularity - rectangularity, 2) + pow(plate_angle - angle, 2));
+				if (rectangularity < 0.7 || rectangularity > 1.29 || aspect_ratio < 0.1 || aspect_ratio > 0.3) {
+					matching_scores[contour_number] = DBL_MAX;
+				}
+			}
+			else {
+				matching_scores[contour_number] = DBL_MAX;
+			}
+		}
+		findBestMatch(frame_number, current_frame, contours_image, matching_scores, min_bounding_rectangles);
+
+		// Display (with located plate and frame number)
+		char frame_no[20];
+		sprintf(frame_no, "%d", frame_number);
+		Point frame_no_location(5, 15);
+		Scalar frame_no_colour(0, 0, 0xFF);
+		putText(current_frame, frame_no, frame_no_location, FONT_HERSHEY_SIMPLEX, 0.4, frame_no_colour);
+		displayFrame(current_frame, "Located plate", frame_number);
+
+		imshow("Video", current_frame);
+	}
+}
+
+/************************************************************************************/
 void MyApplication()
 {
 	string video_filename("Media/CarSpeedTest1.mp4");
@@ -204,15 +396,6 @@ void MyApplication()
 	}
 	else
 	{
-
-		 
-		// Template features
-		Mat gray_template_image, binary_template_image;
-		cvtColor(template_image, gray_template_image, COLOR_BGR2GRAY);
-		double plate_aspect_ratio = (double)PLATE_HEIGHT_IN_MM / (double)PLATE_WIDTH_IN_MM;
-		double plate_rectangularity = 1.0;
-		double plate_angle = 90.0;
-
 		Mat current_frame;
 		video.set(cv::CAP_PROP_POS_FRAMES, 1);
 		video >> current_frame;
@@ -221,112 +404,12 @@ void MyApplication()
 		double frame_rate = video.get(cv::CAP_PROP_FPS);
 		double time_between_frames = 1000.0 / frame_rate;
 
-		int last_located_plate_index = 0;
-		//For CCA
-		vector<vector<Point>> contours;
-		vector<Vec4i> hierarchy;
-
 		while (!current_frame.empty())
 		{
-			if (frame_number <= NUMBER_OF_PLATES) { //Only work on the frames where we have ground truth to exploit results
-				//Static background
-				Mat difference_image, thresholded_difference_im;
-				absdiff(current_frame, static_background_image, difference_image);
-				cvtColor(difference_image, thresholded_difference_im, COLOR_BGR2GRAY);
-				threshold(thresholded_difference_im, thresholded_difference_im, 30, 255, THRESH_BINARY);
+			// Locate the plate
+			findPlate(frame_number, current_frame, last_located_plate_index, static_background_image);
 
-				/*
-				//Without treatment
-				Mat moving_object_pixels = Mat::zeros(thresholded_difference_im.size(), CV_8UC3);
-				current_frame.copyTo(moving_object_pixels, thresholded_difference_im);
-				imshow("Moving object pixels no treatment", moving_object_pixels);
-				*/
-
-				//Add closing and opening treatment on binary
-				Mat structuring_element_3x3(3, 3, CV_8U, Scalar(1));
-				Mat structuring_element_5x5(5, 5, CV_8U, Scalar(1));
-				Mat opened_image, dilated_image, moving_object_pixels;
-				morphologyEx(thresholded_difference_im, opened_image, MORPH_OPEN, structuring_element_3x3);
-				dilate(opened_image, dilated_image, structuring_element_5x5);
-				current_frame.copyTo(moving_object_pixels, dilated_image);
-				//imshow("Moving object pixels with geom", moving_object_pixels);
-
-				//OTSU thresholding on the original grayscale image for the moving object pixels only, to select bright areas of the moving object
-				Mat gray_moving_pixels, otsu_image;
-				cvtColor(moving_object_pixels, gray_moving_pixels, COLOR_BGR2GRAY);
-				threshold(gray_moving_pixels, otsu_image, 50, 255, THRESH_BINARY | THRESH_OTSU);
-				//imshow("otsu result", otsu_image);
-
-
-				//CCA to obtain regions
-				findContours(otsu_image, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
-				Mat contours_image = Mat::zeros(otsu_image.size(), CV_8UC3);
-
-				/*
-				for (int contour_number = 0; (contour_number < (int)contours.size()); contour_number++)
-				{
-						Scalar colour(rand() & 0xFF, rand() & 0xFF, rand() & 0xFF);
-						drawContours(contours_image, contours, contour_number, colour, cv::FILLED, 8, hierarchy);
-				}
-				imshow("cca result", contours_image);*/
-
-				//SPR
-				vector<double> distances_to_plate(contours.size());
-				vector<RotatedRect> min_bounding_rectangle(contours.size());
-				for (int contour_number = 0; (contour_number < (int)contours.size()); contour_number++)
-				{
-					if (contours[contour_number].size() > 60)
-					{
-						min_bounding_rectangle[contour_number] = minAreaRect(contours[contour_number]);
-						double area = contourArea(contours[contour_number]) + contours[contour_number].size() / 2 + 1;
-						double aspect_ratio = min_bounding_rectangle[contour_number].size.aspectRatio();
-						double rectangularity = area / ((double)min_bounding_rectangle[contour_number].size.width * (double)min_bounding_rectangle[contour_number].size.height);
-						double angle = min_bounding_rectangle[contour_number].angle;
-						//Distance to the plate aspect ration and rectangularity features
-						distances_to_plate[contour_number] = sqrt(pow(plate_aspect_ratio - aspect_ratio, 2) + pow(plate_rectangularity - rectangularity, 2) + pow(plate_angle - angle, 2));
-						if (rectangularity < 0.7 || rectangularity > 1.29 || aspect_ratio < 0.1 || aspect_ratio > 0.3) {
-							distances_to_plate[contour_number] = DBL_MAX;
-						}
-					}
-					else {
-						distances_to_plate[contour_number] = DBL_MAX;
-					}
-				}
-				// Contour closest to the template plate + Can't have moved very far from previous frame
-				int closest_contour_index = min_element(distances_to_plate.begin(), distances_to_plate.end()) - distances_to_plate.begin();
-				
-				// First frame or no plate found in previous frame -> C
-				if (frame_number == 1 || 
-					(DistanceBetweenPoints((Point2i)located_plates[last_located_plate_index].center, (Point2i)min_bounding_rectangle[closest_contour_index].center) < MAX_DISTANCE_IN_PIXELS_BETWEEN_FRAMES)) {
-					located_plates[frame_number - 1] = min_bounding_rectangle[closest_contour_index];
-					last_located_plate_index = frame_number - 1;
-					drawLocatedPlate(frame_number, current_frame, min_bounding_rectangle[closest_contour_index], closest_contour_index, contours_image, contours, hierarchy);
-				} else {
-					
-					//cout << frame_number << " - no plate found " << endl;
-					
-					// find second closest
-					distances_to_plate[closest_contour_index] = DBL_MAX;
-					closest_contour_index = min_element(distances_to_plate.begin(), distances_to_plate.end()) - distances_to_plate.begin();
-					if (frame_number == 1 ||
-						(DistanceBetweenPoints((Point2i)located_plates[last_located_plate_index].center, (Point2i)min_bounding_rectangle[closest_contour_index].center) < MAX_DISTANCE_IN_PIXELS_BETWEEN_FRAMES)) {
-						//cout << "better found" << endl;
-						located_plates[frame_number - 1] = min_bounding_rectangle[closest_contour_index];
-						last_located_plate_index = frame_number - 1;
-						drawLocatedPlate(frame_number, current_frame, min_bounding_rectangle[closest_contour_index], closest_contour_index, contours_image, contours, hierarchy);
-					}
-
-				}
-				// Display original frame
-				char frame_no[20];
-				sprintf(frame_no, "%d", frame_number);
-				Point frame_no_location(5, 15);
-				Scalar frame_no_colour(0, 0, 0xFF);
-				putText(current_frame, frame_no, frame_no_location, FONT_HERSHEY_SIMPLEX, 0.4, frame_no_colour);
-			}
-			
-			cv::imshow("Video", current_frame);
-
+			// Go to next frame
 			double current_time = static_cast<double>(getTickCount());
 			double duration = (current_time - last_time) / getTickFrequency() / 1000.0;
 			int delay = (time_between_frames > duration) ? ((int)(time_between_frames - duration)) : 1;
@@ -338,11 +421,13 @@ void MyApplication()
 
 		}
 
-		// Evaluation
+		// Evaluation for plate location
 		evaluatePlateLocation();
-		computeSpeeds();
+
+		// Distances and speed
+		computeDistancesAndSpeeds();
+		evaluateDistancesAndSpeeds();
 
 		cv::destroyAllWindows();
 	}
 }
-

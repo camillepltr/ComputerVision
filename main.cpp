@@ -92,7 +92,9 @@ int liveVideo()
 	return 0;
 }
 
-int demo() {
+
+int main(int argc, const char** argv)
+{
 	liveVideo();
 	char* file_location = "Media/";
 	char* image_files[] = {
@@ -286,11 +288,5 @@ int demo() {
 			break;
 		}
 	} while ((choice != 'x') && (choice != 'X'));
-}
-
-int main(int argc, const char** argv)
-{
-	return demo();
-	//return BabyFood();
 }
 
