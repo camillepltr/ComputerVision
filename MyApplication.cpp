@@ -88,17 +88,15 @@ int last_located_plate_index = 0;
 
 // To display intermediate treatment results, for screenshots, will dispolay the current frame if it has the frame_to_display frame number
 void displayFrame(Mat image, const char* description, int current_frame) {
-	if (DISPLAY_STEPS_RESULT) {
-		int frame_to_display = 155; // Arbitrary
-		if (current_frame == frame_to_display) {
-			char frame_no[20];
-			sprintf(frame_no, "%d", current_frame);
-			Point frame_no_location(5, 15);
-			Scalar frame_no_colour(0xFF, 0xFF, 0xFF);
+	int frame_to_display = 155; // Arbitrary
+	if (current_frame == frame_to_display) {
+		char frame_no[20];
+		sprintf(frame_no, "%d", current_frame);
+		Point frame_no_location(5, 15);
+		Scalar frame_no_colour(0x00, 0x00, 0xFF);
 
-			putText(image, frame_no, frame_no_location, FONT_HERSHEY_SIMPLEX, 0.4, frame_no_colour);
-			imshow(description, image);
-		}
+		putText(image, frame_no, frame_no_location, FONT_HERSHEY_SIMPLEX, 0.4, frame_no_colour);
+		imshow(description, image);
 	}
 }
 
@@ -250,7 +248,7 @@ void evaluateDistancesAndSpeeds() {
 void drawLocatedPlate(int &frame_number, Mat &current_frame, RotatedRect &min_bounding_rectangle, int &closest_contour_index, Mat &contours_image, vector<vector<Point>> &contours, vector<Vec4i> &hierarchy) {
 
 	// Color region on current frame and contour images
-	Scalar colour(0x80, 0x80, 0xFF);
+	Scalar colour(rand() & 0xFF, rand() & 0xFF, rand() & 0xFF);
 	drawContours(contours_image, contours, closest_contour_index, colour, cv::FILLED, 8, hierarchy);
 	drawContours(current_frame, contours, closest_contour_index, colour, cv::FILLED, 8, hierarchy);
 
@@ -268,12 +266,7 @@ void drawLocatedPlate(int &frame_number, Mat &current_frame, RotatedRect &min_bo
 	double aspect_ratio = min_bounding_rectangle.size.aspectRatio();
 	double rectangularity = area / ((double)min_bounding_rectangle.size.width * (double)min_bounding_rectangle.size.height);
 	double angle = min_bounding_rectangle.angle;
-	/*sprintf(output, "Aspect ratio=%.5f; Rectangularity=%.5f; angle=%.5f ", aspect_ratio, rectangularity, angle);
-	Point location(contours[closest_contour_index][0].x + 20, contours[closest_contour_index][0].y + 5);
-	putText(current_frame, output, location, FONT_HERSHEY_SIMPLEX, 0.4, colour);
-
-	putText(contours_image, output, location, FONT_HERSHEY_SIMPLEX, 0.4, colour);*/
-	displayFrame(contours_image, "Located plate", frame_number);
+	if (DISPLAY_STEPS_RESULT) { displayFrame(contours_image, "Located plate", frame_number); }
 
 }
 
@@ -310,38 +303,39 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 		absdiff(current_frame, static_background_image, difference_image);
 		cvtColor(difference_image, thresholded_difference_im, COLOR_BGR2GRAY);
 		threshold(thresholded_difference_im, thresholded_difference_im, 20, 255, THRESH_BINARY);
-		displayFrame(thresholded_difference_im, "Binary moving object pixels", frame_number);
+		if (DISPLAY_STEPS_RESULT) { displayFrame(thresholded_difference_im, "Binary moving object pixels", frame_number); }
 
 		//Add closing and opening treatment on binary
 		Mat opened_image, dilated_image, moving_object_pixels;
 		morphologyEx(thresholded_difference_im, opened_image, MORPH_OPEN, structuring_element_3x3);
 		dilate(opened_image, dilated_image, structuring_element_5x5);
-		displayFrame(dilated_image, "Binary moving object pixels after geometry", frame_number);
+		if (DISPLAY_STEPS_RESULT) { displayFrame(dilated_image, "Binary moving object pixels after geometry", frame_number); }
 
 		current_frame.copyTo(moving_object_pixels, dilated_image);
-		displayFrame(moving_object_pixels, "Original moving object pixels after geometry", frame_number);
+		if (DISPLAY_STEPS_RESULT) { displayFrame(moving_object_pixels, "Original moving object pixels after geometry", frame_number); }
 
 		//OTSU thresholding on the original grayscale image for the moving object pixels only, to select bright areas of the moving object
 		Mat gray_moving_pixels, otsu_image;
 		cvtColor(moving_object_pixels, gray_moving_pixels, COLOR_BGR2GRAY);
 		threshold(gray_moving_pixels, otsu_image, 0, 255, THRESH_BINARY | THRESH_OTSU);
-		displayFrame(otsu_image, "OTSU result", frame_number);
+		if (DISPLAY_STEPS_RESULT) { displayFrame(otsu_image, "OTSU result", frame_number); }
 
 		//CCA to obtain regions
 		findContours(otsu_image, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
-
 		Mat contours_image = Mat::zeros(otsu_image.size(), CV_8UC3);
 		Mat contours_on_original;
 		current_frame.copyTo(contours_on_original);
-		for (int contour_number = 0; (contour_number < (int)contours.size()); contour_number++)
-		{
-			Scalar colour(rand() & 0xFF, rand() & 0xFF, rand() & 0xFF);
-			drawContours(contours_image, contours, contour_number, colour, cv::FILLED, 8, hierarchy);
-			drawContours(contours_on_original, contours, contour_number, colour, cv::FILLED, 8, hierarchy);
-		}
-		displayFrame(contours_image, "CCA result", frame_number);
-		displayFrame(contours_on_original, "CCA result on original image", frame_number);
 
+		if (DISPLAY_STEPS_RESULT) {
+			for (int contour_number = 0; (contour_number < (int)contours.size()); contour_number++)
+			{
+				Scalar colour(rand() & 0xFF, rand() & 0xFF, rand() & 0xFF);
+				drawContours(contours_image, contours, contour_number, colour, cv::FILLED, 8, hierarchy);
+				drawContours(contours_on_original, contours, contour_number, colour, cv::FILLED, 8, hierarchy);
+			}
+			displayFrame(contours_image, "CCA result", frame_number);
+			displayFrame(contours_on_original, "CCA result on original image", frame_number);
+		}
 
 		//SPR
 		vector<double> matching_scores(contours.size());
@@ -355,10 +349,11 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 				double aspect_ratio = min_bounding_rectangles[contour_number].size.aspectRatio();
 				double rectangularity = area / ((double)min_bounding_rectangles[contour_number].size.width * (double)min_bounding_rectangles[contour_number].size.height);
 				double angle = min_bounding_rectangles[contour_number].angle;
-				// Matching score : Distance to the plate based on aspect ratio rectangularity and angle features
-				matching_scores[contour_number] = sqrt(pow(plate_aspect_ratio - aspect_ratio, 2) + pow(plate_rectangularity - rectangularity, 2) + pow(plate_angle - angle, 2));
-				if (rectangularity < 0.7 || rectangularity > 1.29 || aspect_ratio < 0.1 || aspect_ratio > 0.3) {
+				if (rectangularity < 0.7 || rectangularity > 1.29 || aspect_ratio < 0.1 || aspect_ratio > 0.3) { // Eliminate region
 					matching_scores[contour_number] = DBL_MAX;
+				}
+				else { 	// Matching score : Distance to the plate based on aspect ratio rectangularity and angle features
+					matching_scores[contour_number] = sqrt(pow(plate_aspect_ratio - aspect_ratio, 2) + pow(plate_rectangularity - rectangularity, 2) + pow(plate_angle - angle, 2));
 				}
 			}
 			else {
@@ -373,7 +368,7 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 		Point frame_no_location(5, 15);
 		Scalar frame_no_colour(0, 0, 0xFF);
 		putText(current_frame, frame_no, frame_no_location, FONT_HERSHEY_SIMPLEX, 0.4, frame_no_colour);
-		displayFrame(current_frame, "Located plate", frame_number);
+		if (true) { displayFrame(current_frame, "Located plate", frame_number); }
 
 		imshow("Video", current_frame);
 	}
@@ -432,7 +427,6 @@ int main(int argc, const char** argv)
 		// Distances and speed
 		computeDistancesAndSpeeds();
 		evaluateDistancesAndSpeeds();
-
 		cv::destroyAllWindows();
 	}
 }
