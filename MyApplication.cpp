@@ -198,11 +198,11 @@ void computeDistancesAndSpeeds() {
 		
 		// Distance 
 		float ci = RESOLUTION_WIDTH / 2.0;
-		float dCamera1 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(located_plates[previous_frame_index].center.x - ci, 2));
-		float dCamera2 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(located_plates[frame_index].center.x - ci, 2));
+		float dCamera1 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(ci - located_plates[previous_frame_index].center.x, 2));
+		float dCamera2 = sqrt(pow(FOCAL_LENGTH_ESTIMATE, 2) + pow(ci - located_plates[frame_index].center.x, 2));
 		float d1 = dCamera1 * (float)PLATE_WIDTH_IN_MM / located_plates[previous_frame_index].size.height;
 		float d2 = dCamera2 * (float)PLATE_WIDTH_IN_MM / located_plates[frame_index].size.height;
-		float cos_theta = (pow(FOCAL_LENGTH_ESTIMATE, 2) + (located_plates[previous_frame_index].center.x - ci) * (ci - located_plates[frame_index].center.x - ci)) / (dCamera1 * dCamera2);
+		float cos_theta = (pow(FOCAL_LENGTH_ESTIMATE, 2) + (ci - located_plates[previous_frame_index].center.x) * (ci - located_plates[frame_index].center.x)) / (dCamera1 * dCamera2);
 		float distance = sqrt(pow(d1,2) + pow(d2,2) - 2*d1*d2*cos_theta);
 		
 		cout << endl << "Between frames  " << previous_frame_index + 1 << " and " << frame_index + 1 << endl;
@@ -224,17 +224,21 @@ void computeDistancesAndSpeeds() {
 }
 
 void evaluateDistancesAndSpeeds() {
-	float sse_distances = 0.0f;
+	float mae_distances = 0.0f;
 	for (int i = 0; i < NUMBER_OF_FRAMES_FOR_DISTANCES - 1; i++) {
-		sse_distances += pow(computed_distances[i] - DISTANCES_TRAVELLED_IN_MM[i], 2);
+		mae_distances += abs(computed_distances[i] - DISTANCES_TRAVELLED_IN_MM[i]);
 	}
-	float sse_speeds = 0.0f;
+	mae_distances /= (NUMBER_OF_FRAMES_FOR_DISTANCES -1);
+
+	float mae_speeds = 0.0f;
 	for (int i = 0; i < NUMBER_OF_FRAMES_FOR_DISTANCES - 1; i++) {
-		sse_speeds += pow(computed_speeds[i] - SPEEDS_IN_KMPH[i], 2);
+		mae_speeds += abs(computed_speeds[i] - SPEEDS_IN_KMPH[i]);
 	}
+	mae_speeds /= (NUMBER_OF_FRAMES_FOR_DISTANCES - 1);
+
 	cout << endl << "********************* Evaulation of the computed distances and speeds between 9 frames *******************" << endl;
-	cout << "Sum of squared errors for travelled distances : " << sse_distances << endl;
-	cout << "Sum of squared errors for speeds : " << sse_speeds << endl;
+	cout << "Mean Average Error for travelled distances : " << mae_distances << endl;
+	cout << "Mean Average Error for speeds : " << mae_speeds << endl;
 	cout << "**************************************************************************************************" << endl;
 
 }
@@ -374,8 +378,7 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 	}
 }
 
-/************************************************************************************/
-void MyApplication()
+int main(int argc, const char** argv)
 {
 	string video_filename("Media/CarSpeedTest1.mp4");
 	VideoCapture video;

@@ -19,22 +19,17 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Binary.cpp" />
-    <ClCompile Include="CameraCalibration.cpp" />
-    <ClCompile Include="Edges.cpp" />
-    <ClCompile Include="Features.cpp" />
-    <ClCompile Include="Geometric.cpp" />
-    <ClCompile Include="Histograms.cpp" />
-    <ClCompile Include="Images.cpp" />
-    <ClCompile Include="main.cpp" />
     <ClCompile Include="MyApplication.cpp" />
-    <ClCompile Include="Recognition.cpp" />
-    <ClCompile Include="Region.cpp" />
     <ClCompile Include="Utilities.cpp" />
-    <ClCompile Include="Video.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Utilities.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Text.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{4F6AA1A1-8CE8-461E-9FA6-29F398D8E35F}</ProjectGuid>
