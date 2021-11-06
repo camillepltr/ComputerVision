@@ -67,6 +67,9 @@ const int NUMBER_OF_FRAMES_FOR_DISTANCES = sizeof(FRAMES_FOR_DISTANCES) / (sizeo
 const int MAX_DISTANCE_IN_PIXELS_BETWEEN_FRAMES = 150;
 const bool DISPLAY_STEPS_RESULT = false; // True to make screenshots for the report
 
+Mat structuring_element_3x3(3, 3, CV_8U, Scalar(1));
+Mat structuring_element_5x5(5, 5, CV_8U, Scalar(1));
+
 // Template features
 double plate_aspect_ratio = (double)PLATE_HEIGHT_IN_MM / (double)PLATE_WIDTH_IN_MM;
 double plate_rectangularity = 1.0;
@@ -306,12 +309,10 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 		Mat difference_image, thresholded_difference_im;
 		absdiff(current_frame, static_background_image, difference_image);
 		cvtColor(difference_image, thresholded_difference_im, COLOR_BGR2GRAY);
-		threshold(thresholded_difference_im, thresholded_difference_im, 30, 255, THRESH_BINARY);
+		threshold(thresholded_difference_im, thresholded_difference_im, 20, 255, THRESH_BINARY);
 		displayFrame(thresholded_difference_im, "Binary moving object pixels", frame_number);
 
 		//Add closing and opening treatment on binary
-		Mat structuring_element_3x3(3, 3, CV_8U, Scalar(1));
-		Mat structuring_element_5x5(5, 5, CV_8U, Scalar(1));
 		Mat opened_image, dilated_image, moving_object_pixels;
 		morphologyEx(thresholded_difference_im, opened_image, MORPH_OPEN, structuring_element_3x3);
 		dilate(opened_image, dilated_image, structuring_element_5x5);
@@ -323,7 +324,7 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 		//OTSU thresholding on the original grayscale image for the moving object pixels only, to select bright areas of the moving object
 		Mat gray_moving_pixels, otsu_image;
 		cvtColor(moving_object_pixels, gray_moving_pixels, COLOR_BGR2GRAY);
-		threshold(gray_moving_pixels, otsu_image, 50, 255, THRESH_BINARY | THRESH_OTSU);
+		threshold(gray_moving_pixels, otsu_image, 0, 255, THRESH_BINARY | THRESH_OTSU);
 		displayFrame(otsu_image, "OTSU result", frame_number);
 
 		//CCA to obtain regions
@@ -378,6 +379,7 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 	}
 }
 
+/*******************************************************************************/
 int main(int argc, const char** argv)
 {
 	string video_filename("Media/CarSpeedTest1.mp4");

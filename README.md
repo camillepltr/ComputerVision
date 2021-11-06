@@ -8,13 +8,11 @@ Trinity College Dublin - Computer Vision
 
 ## Code location
 
-The code for this assignment is built on top of the provided TIPS application.
+The code for this assignment is built on top of the provided TIPS application, the unused files (all but MyApplication.cpp and Utilities) were removed.
 
 The part I wrote is all contained in the file `MyApplication.cpp`.
 
 ## Solution execution
-
-The solution for the assignment can be executed by executing the full solution and pressing key **m**.
 
 The plate location that the solution finds is displayed on the video as it goes.
 
