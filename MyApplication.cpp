@@ -65,17 +65,18 @@ const int NUMBER_OF_FRAMES_FOR_DISTANCES = sizeof(FRAMES_FOR_DISTANCES) / (sizeo
 
 // Some manually set settings
 const int MAX_DISTANCE_IN_PIXELS_BETWEEN_FRAMES = 150;
+const int MIN_CONTOUR_LENGTH = 60;
 const bool DISPLAY_STEPS_RESULT = false; // True to make screenshots for the report
 
 Mat structuring_element_3x3(3, 3, CV_8U, Scalar(1));
 Mat structuring_element_5x5(5, 5, CV_8U, Scalar(1));
 
-// Template features
+// Theoretical features
 double plate_aspect_ratio = (double)PLATE_HEIGHT_IN_MM / (double)PLATE_WIDTH_IN_MM;
 double plate_rectangularity = 1.0;
 double plate_angle = 90.0;
 
-//For CCA
+// For CCA
 vector<vector<Point>> contours;
 vector<Vec4i> hierarchy;
 
@@ -291,7 +292,6 @@ void findBestMatch(int &frame_number, Mat &current_frame, Mat &contours_image, v
 			last_located_plate_index = frame_number - 1;
 			drawLocatedPlate(frame_number, current_frame, min_bounding_rectangles[best_contour_index], best_contour_index, contours_image, contours, hierarchy);
 		}
-
 	}
 }
 
@@ -342,7 +342,7 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 		vector<RotatedRect> min_bounding_rectangles(contours.size());
 		for (int contour_number = 0; (contour_number < (int)contours.size()); contour_number++)
 		{
-			if (contours[contour_number].size() > 60)
+			if (contours[contour_number].size() > MIN_CONTOUR_LENGTH)
 			{
 				min_bounding_rectangles[contour_number] = minAreaRect(contours[contour_number]);
 				double area = contourArea(contours[contour_number]) + contours[contour_number].size() / 2 + 1;
@@ -352,7 +352,7 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 				if (rectangularity < 0.7 || rectangularity > 1.29 || aspect_ratio < 0.1 || aspect_ratio > 0.3) { // Eliminate region
 					matching_scores[contour_number] = DBL_MAX;
 				}
-				else { 	// Matching score : Distance to the plate based on aspect ratio rectangularity and angle features
+				else { 	// Matching score : Sum of square differences to the theoretical plate for aspect ratio, rectangularity and angle features
 					matching_scores[contour_number] = sqrt(pow(plate_aspect_ratio - aspect_ratio, 2) + pow(plate_rectangularity - rectangularity, 2) + pow(plate_angle - angle, 2));
 				}
 			}
@@ -368,7 +368,7 @@ void findPlate(int& frame_number, Mat& current_frame, int & last_located_plate_i
 		Point frame_no_location(5, 15);
 		Scalar frame_no_colour(0, 0, 0xFF);
 		putText(current_frame, frame_no, frame_no_location, FONT_HERSHEY_SIMPLEX, 0.4, frame_no_colour);
-		if (true) { displayFrame(current_frame, "Located plate", frame_number); }
+		if (DISPLAY_STEPS_RESULT) { displayFrame(current_frame, "Located plate", frame_number); }
 
 		imshow("Video", current_frame);
 	}
@@ -381,16 +381,12 @@ int main(int argc, const char** argv)
 	VideoCapture video;
 	video.open(video_filename);
 
-	string filename("Media/LicencePlateTemplate.png");
-	Mat template_image = imread(filename, -1);
 	string background_filename("Media/CarSpeedTest1EmptyFrame.jpg");
 	Mat static_background_image = imread(background_filename, -1);
-	if ((!video.isOpened()) || (template_image.empty()) || (static_background_image.empty()))
+	if ((!video.isOpened()) || (static_background_image.empty()))
 	{
 		if (!video.isOpened())
 			cout << "Cannot open video file: " << video_filename << endl;
-		if (template_image.empty())
-			cout << "Cannot open image file: " << filename << endl;
 		if (static_background_image.empty())
 			cout << "Cannot open image file: " << background_filename << endl;
 	}
